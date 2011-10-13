@@ -1,0 +1,25 @@
+Name:                HPseudoBool
+Version:             0.1
+Synopsis:            A library for encoding pseudo boolean formulas in the format of the pseudo boolean competition.
+-- Description:         
+Homepage:            https://github.com/HaskellElephant/HPseudoBool
+License:             GPL-3
+License-file:        LICENSE
+Author:              Eivind Jahren
+Maintainer:          eivind.jahren@gmail.com
+Category:            Language
+Build-type:          Simple
+Cabal-version:       >=1.2
+
+
+
+
+Library
+  hs-source-dirs:
+     src
+  Exposed-modules:     
+     HPseudoBool
+  Build-depends:
+    containers,
+    base,
+    mtl
