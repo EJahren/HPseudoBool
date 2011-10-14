@@ -1,0 +1,21 @@
+Description
+===========
+
+This is a library for encoding pseudo boolean problems
+in the format for the pseudo boolean competition 
+(http://www.cril.univ-artois.fr/PB11/). Details about the 
+format can be found here:
+
+  http://www.cril.univ-artois.fr/PB11/format.pdf
+
+usage
+===
+
+
+putStrLn (getEncoding test)
+
+test = do
+  add (2 |*| X 1 |+| 3 |*| X 2 |<=| (asSum 3))
+  add (3 |*| X 2 |+| 5 |*| X 3 |>| (asSum 4))
+  minimize (X 1 |+| X 2)
+
