@@ -136,7 +136,7 @@ add :: Constraint -> PBencM ()
 add c = modify 
   (\s -> 
     s{constraints = (Cons c) : constraints s,
-      freshis = deletes (freshis s)  (map snd . M.toList . vars . getSum $ c) })
+      freshis = deletes (freshis s)  (map ((\(X i) -> i) . fst) . M.toList . vars . getSum $ c) })
 
 comment :: String -> PBencM ()
 comment str = modify (\s -> s{constraints = (Comment str):(constraints s)})
@@ -183,3 +183,9 @@ test2 = do
 
 test3 =
   add (X 1  |<=|  ((2 * 0)-1) |*| X 2 |+| (asSum 1) |-| (asSum 0))
+
+test4 = do
+  add (X 1 |<=| (asSum 1))
+  [a,b] <- freshs 2
+  add (X 1 |>=| a |+| b)
+  minimize( a |-| b)
