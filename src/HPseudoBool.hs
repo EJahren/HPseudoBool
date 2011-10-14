@@ -125,7 +125,12 @@ fresh = do
 freshs :: Int -> PBencM [Var]
 freshs i = replicateM i fresh
 
-deletes = foldl (flip delete)
+deletes = foldl go
+  where 
+   go (x:xs) y
+      | x > y     = (x:xs)
+      | x == y    = xs
+      | otherwise = x : go xs y
 
 add :: Constraint -> PBencM ()
 add c = modify 
