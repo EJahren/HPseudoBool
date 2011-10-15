@@ -1,4 +1,28 @@
-module HPseudoBool where
+module HPseudoBool
+  (Var,
+   Sumable,
+   Line,
+   Sum,
+   emptySum,
+   (|+|),
+   (|-|),
+   (|==|),
+   (|>=|),
+   (|<=|),
+   (|*|),
+   (|<|),
+   (|>|),
+   getEncoding,
+   newVar,
+   newVar1,
+   sumC,
+   Constraint,
+   PBencM,
+   add,
+   comment,
+   addAll,
+   minimize,
+   asSum) where
 import Control.Monad.State
 import Control.Monad
 import qualified Data.Map as M
@@ -109,34 +133,32 @@ a |<| b = Geq ((S m 0) |-| (S m' 0)) (c' - c -1)
         (S m' c') = toSum b
 
 data PBencState = PBS {
-  freshis :: [Integer],
+  nextFresh :: Integer,
+  assocs :: Map Var String,
   constraints :: [Line],
   objective :: Sum
 }
 
 type PBencM = State PBencState
 
-fresh :: PBencM Var
-fresh = do 
-  i <- liftM head $ gets freshis
-  modify (\p -> p{freshis = tail (freshis p)})
+newVar :: String -> PBencM Var
+newVar str = do
+  i <- gets nextFresh
+  let retVar = X i
+  modify 
+    (\p -> 
+       p{nextFresh = i + 1,
+         assocs = M.insert retVar str (assocs p) })
+  return retVar
+
+newVar1 :: PBencM Var
+newVar1 = do
+  i <- gets nextFresh
+  modify (\p -> p{nextFresh = i + 1})
   return (X i)
 
-freshs :: Int -> PBencM [Var]
-freshs i = replicateM i fresh
-
-deletes = foldl go
-  where 
-   go (x:xs) y
-      | x > y     = (x:xs)
-      | x == y    = xs
-      | otherwise = x : go xs y
-
 add :: Constraint -> PBencM ()
-add c = modify 
-  (\s -> 
-    s{constraints = (Cons c) : constraints s,
-      freshis = deletes (freshis s)  (map ((\(X i) -> i) . fst) . M.toList . vars . getSum $ c) })
+add c = modify (\s -> s{constraints = (Cons c) : constraints s})
 
 comment :: String -> PBencM ()
 comment str = modify (\s -> s{constraints = (Comment str):(constraints s)})
@@ -147,23 +169,18 @@ minimize :: Sum -> PBencM ()
 minimize c = modify (\s -> s{objective = c})
 
 getEncoding :: PBencM a -> String
-getEncoding p = pr (execState p (PBS [1..] [] emptySum))
+getEncoding p = pr (execState p (PBS 1 M.empty [] emptySum))
   where
-   pr (PBS is cs' s) =  "* #variable= " ++ show (numVars)  ++
-                         " #constraint= " ++ 
-                          show (sum . map f $ cs)
-                        ++ "\n" ++
-                      "min: " ++ show s ++ ";\n" ++
-                      unlines (map show cs)
-     where numVars = S.size vars
-           vars = S.unions . map S.fromList $ varss
-           varss = map (\(S m _) -> map fst $ M.toList m) sums
-           sums = map getSum . map (\(Cons c) -> c) . filter g $ cs
-           cs = reverse cs'
-           g (Cons _ ) = True
-           g _ = False
-           f (Cons _ ) = 1
-           f _          = 0
+    pr (PBS i m cs' s) =  "* #variable= " ++ show (i-1)  ++
+                          " #constraint= " ++ show (sum . map f $ cs)
+                          ++ "\n" ++
+                          "* " ++ show (M.toList m) ++ "\n" ++
+                          "min: " ++ show s ++ ";\n" ++
+                          unlines (map show cs)
+     where 
+       cs = reverse cs'
+       f (Cons _ ) = 1
+       f _          = 0
 
 asSum :: (Integral a) => a -> Sum
 asSum = toSum . toInteger
@@ -172,20 +189,8 @@ asSum = toSum . toInteger
 --  toSum = asSum
 
 test = do
-  add (2 |*| X 1 |+| 3 |*| X 2 |<=| (asSum 3))
-  add (3 |*| X 2 |+| 5 |*| X 3 |>| (asSum 4))
-  minimize (X 1 |+| X 2)
-
-test2 = do
-  add (X 2 |<=| X 3)
-  add (3 |*| X 2 |+| 5 |*| X 3 |+| (asSum 4) |>=| (asSum 4) |+| X 3)
-  minimize (X 1 |+| X 2 |-| (asSum 1))
-
-test3 =
-  add (X 1  |<=|  ((2 * 0)-1) |*| X 2 |+| (asSum 1) |-| (asSum 0))
-
-test4 = do
-  add (X 1 |<=| (asSum 1))
-  [a,b] <- freshs 2
-  add (X 1 |>=| a |+| b)
+  c <- newVar1
+  add (c |<=| (asSum 1))
+  [a,b] <- mapM newVar ["a","b"]
+  add (c |>=| a |+| b)
   minimize( a |-| b)

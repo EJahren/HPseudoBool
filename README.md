@@ -15,7 +15,9 @@ usage
 putStrLn (getEncoding test)
 
 test = do
-  add (2 |*| X 1 |+| 3 |*| X 2 |<=| (asSum 3))
-  add (3 |*| X 2 |+| 5 |*| X 3 |>| (asSum 4))
+  [a,b] <- mapM newVar ["a","b"]
+  c <- newVar1
+  add (2 |*| a |+| 3 |*| c |<=| (asSum 3))
+  add (3 |*| b |+| 5 |*| c |>| (asSum 4))
   minimize (X 1 |+| X 2)
 
