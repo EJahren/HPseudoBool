@@ -12,7 +12,7 @@ usage
 ===
 
 
-putStrLn (getEncoding test)
+    putStrLn (getEncoding test)
 
     test = do
       [a,b] <- mapM newVar ["a","b"]
