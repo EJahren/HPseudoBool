@@ -12,12 +12,11 @@ usage
 ===
 
 
-    putStrLn (getEncoding test)
+    main = putStrLn (getEncoding test)
 
     test = do
-      [a,b] <- mapM newVar ["a","b"]
       c <- newVar1
-      add (2 |*| a |+| 3 |*| c |<=| (asSum 3))
-      add (3 |*| b |+| 5 |*| c |>| (asSum 4))
-      minimize (X 1 |+| X 2)
-
+      add ( c |<=| 1)
+      [a,b] <- mapM newVar ["a","b"]
+      add (c |>=| a + b)
+      minimize( a - b)

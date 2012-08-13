@@ -1,11 +1,9 @@
+{-# LANGUAGE FlexibleInstances, UndecidableInstances#-}
 module HPseudoBool
   (Var,
-   Sumable,
    Line,
    Sum,
    emptySum,
-   (|+|),
-   (|-|),
    (|==|),
    (|>=|),
    (|<=|),
@@ -21,8 +19,8 @@ module HPseudoBool
    add,
    comment,
    addAll,
-   minimize,
-   asSum) where
+   minimize
+   ) where
 import Control.Monad.State
 import Control.Monad
 import qualified Data.Map as M
@@ -39,21 +37,6 @@ instance Show Line where
   show (Cons c) = show c
   show (Comment str) = "* "++ (intercalate "* \n" . lines $ str)
 
-class Sumable a where
-  toSum :: a -> Sum
-
-instance Sumable Var where
-  toSum  v = S (M.singleton v 1) 0
-
-instance Sumable Integer where 
-  toSum i = S M.empty i
-
-instance Sumable Int where
-  toSum i = S M.empty (toInteger i)
-
-instance Sumable Sum where
-  toSum = id
-
 data Sum = S {
   vars :: Map Var Integer,
   consts ::  Integer} deriving Eq
@@ -64,8 +47,7 @@ emptySum = S (M.empty) 0
 data Line = Cons Constraint | Comment String
 
 infixl 3 |*|
-a |*| b = S (M.map (*a) m) (a*c)
-   where (S m c) = toSum b
+a |*| v = S (M.singleton v a) 0
 
 instance Show Sum where 
  show (S m i)  | i < 0 = (unwords . map printSum . M.assocs $ m) ++ " " ++ show i
@@ -76,14 +58,14 @@ instance Show Sum where
                   | b > 0  = "+" ++ show b ++ " " ++ show a
                   | otherwise = show b ++ " " ++ show a
 
-(|+|) :: (Sumable a, Sumable b) => a -> b -> Sum
-infixl 2 |+|
-a |+| b = addS (toSum a) (toSum b)
-
-(|-|) :: (Sumable a, Sumable b) => a -> b -> Sum
-infixl 2 |-|
-a |-| b = addS (toSum a) (S (M.map negate m) (negate c))
-  where (S m c) = toSum b
+instance Num Sum where
+  a - b = a + (negate b)
+  (+) = addS
+  negate (S xs i) = (S (M.map negate xs) (negate i))
+  abs = undefined
+  signum = undefined
+  (*) = undefined
+  fromInteger i = (S M.empty i)
 
 addS (S xs i) (S ys j) = 
   foldl (\ m (x,y) -> m `g` ( x,y)) (S ys (i+j)) (M.assocs xs)
@@ -93,8 +75,8 @@ addS (S xs i) (S ys j) =
        | var `M.member` m = S (M.adjust (+c) var m) i
        | otherwise   = S (M.insert var c m) i
 
-sumC :: (Sumable a) => [a] -> Sum
-sumC = foldr (|+|) emptySum
+sumC :: [Sum] -> Sum
+sumC = foldr (+) emptySum
 
 data Constraint = Geq Sum Integer | E Sum Integer 
 
@@ -108,29 +90,21 @@ instance Show Constraint where
   show (E  (S m i)  t) | i /= 0    = error "Can't print Unbalanced Constraint" 
                        | otherwise = show (S m i) ++ " = " ++ show t ++ ";"
 
-(|>=|) :: (Sumable a, Sumable b) => a -> b -> Constraint
+(|>=|) :: Sum -> Sum -> Constraint
 infix 1 |>=|
-a |>=| b = Geq ((S m 0) |-| (S m' 0)) (c' - c)
-  where (S m c) = toSum a
-        (S m' c') = toSum b
-(|==|) :: (Sumable a, Sumable b) => a -> b -> Constraint
+(S m c) |>=| (S m' c') = Geq ((S m 0) - (S m' 0)) (c' - c)
+(|==|) :: Sum -> Sum -> Constraint
 infix 1 |==|
-a |==| b = E ((S m 0) |-| S m' 0) (c' - c)
-  where (S m c) = toSum a
-        (S m' c') = toSum b
-(|<=|) :: (Sumable a, Sumable b) => a -> b -> Constraint
+(S m c) |==| (S m' c') = E ((S m 0) - S m' 0) (c' - c)
+(|<=|) :: Sum -> Sum -> Constraint
 infix 1 |<=|
-a |<=| b = ((toSum b) |-| (toSum a)) |>=| asSum 0
-(|>|) :: (Sumable a, Sumable b) => a -> b -> Constraint
+a |<=| b = (b - a) |>=| 0
+(|>|) :: Sum -> Sum -> Constraint
 infix 1 |>|
-a |>| b = Geq (S m 0 |-| S m' 0) (c'- c + 1)
-  where (S m c) = toSum a
-        (S m' c') = toSum b
-(|<|) :: (Sumable a, Sumable b) => a -> b -> Constraint
+(S m c) |>| (S m' c') = Geq (S m 0 - S m' 0) (c'- c + 1)
+(|<|) ::  Sum -> Sum -> Constraint
 infix 1 |<|
-a |<| b = Geq ((S m 0) |-| (S m' 0)) (c' - c -1)
-  where (S m c) = toSum a
-        (S m' c') = toSum b
+(S m c) |<| (S m' c') = Geq ((S m 0) - (S m' 0)) (c' - c -1)
 
 data PBencState = PBS {
   nextFresh :: Integer,
@@ -141,7 +115,7 @@ data PBencState = PBS {
 
 type PBencM = State PBencState
 
-newVar :: String -> PBencM Var
+newVar :: String -> PBencM Sum
 newVar str = do
   i <- gets nextFresh
   let retVar = X i
@@ -149,13 +123,13 @@ newVar str = do
     (\p -> 
        p{nextFresh = i + 1,
          assocs = M.insert retVar str (assocs p) })
-  return retVar
+  return (S (M.singleton retVar 1) 0)
 
-newVar1 :: PBencM Var
+newVar1 :: PBencM Sum
 newVar1 = do
   i <- gets nextFresh
   modify (\p -> p{nextFresh = i + 1})
-  return (X i)
+  return (S (M.singleton (X i) 1) 0)
 
 add :: Constraint -> PBencM ()
 add c = modify (\s -> s{constraints = (Cons c) : constraints s})
@@ -182,15 +156,9 @@ getEncoding p = pr (execState p (PBS 1 M.empty [] emptySum))
        f (Cons _ ) = 1
        f _          = 0
 
-asSum :: (Integral a) => a -> Sum
-asSum = toSum . toInteger
-
---instance (Integral a) => Sumable a where
---  toSum = asSum
-
 test = do
   c <- newVar1
-  add (c |<=| (asSum 1))
+  add ( c |<=| 1)
   [a,b] <- mapM newVar ["a","b"]
-  add (c |>=| a |+| b)
-  minimize( a |-| b)
+  add (c |>=| a + b)
+  minimize( a - b)
