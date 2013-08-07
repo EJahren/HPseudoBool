@@ -1,8 +1,8 @@
-{-# LANGUAGE FlexibleInstances, UndecidableInstances#-}
+{-# LANGUAGE FlexibleInstances, UndecidableInstances,BangPatterns#-}
 module HPseudoBool
-  (Var,
-   Line,
-   Sum,
+  (Var(..),
+   Sum(..),
+   Line(..),
    emptySum,
    (|==|),
    (|>=|),
@@ -14,21 +14,28 @@ module HPseudoBool
    newVar,
    newVar1,
    sumC,
-   Constraint,
+   Constraint(..),
    PBencM,
+   PBencState(..),
    add,
    comment,
    addAll,
    minimize
    ) where
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad
 import qualified Data.Map as M
 import Data.Map(Map)
 import Data.List
 import qualified Data.Set as S
 
-data Var = X Integer deriving (Ord,Eq)
+import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Lazy.Char8 as C
+import Data.ByteString.Builder
+
+import Data.Monoid hiding (Sum)
+
+data Var = X Int deriving (Ord,Eq)
 
 instance Show Var where
  show (X a) = "x" ++ show a
@@ -38,8 +45,8 @@ instance Show Line where
   show (Comment str) = "* "++ (intercalate "* \n" . lines $ str)
 
 data Sum = S {
-  vars :: Map Var Integer,
-  consts ::  Integer} deriving Eq
+  vars :: Map Var Int,
+  consts ::  Int} deriving Eq
 
 
 emptySum = S (M.empty) 0
@@ -65,12 +72,12 @@ instance Num Sum where
   abs = undefined
   signum = undefined
   (*) = undefined
-  fromInteger i = (S M.empty i)
+  fromInteger i = (S M.empty (fromInteger i))
 
 addS (S xs i) (S ys j) = 
   foldl (\ m (x,y) -> m `g` ( x,y)) (S ys (i+j)) (M.assocs xs)
    where 
-     g :: Sum -> (Var,Integer) -> Sum
+     g :: Sum -> (Var,Int) -> Sum
      g (S m i) (var,c)
        | var `M.member` m = S (M.adjust (+c) var m) i
        | otherwise   = S (M.insert var c m) i
@@ -78,7 +85,7 @@ addS (S xs i) (S ys j) =
 sumC :: [Sum] -> Sum
 sumC = foldr (+) emptySum
 
-data Constraint = Geq Sum Integer | E Sum Integer 
+data Constraint = Geq Sum Int | E Sum Int 
 
 getSum :: Constraint -> Sum
 getSum (Geq s _) = s
@@ -89,6 +96,8 @@ instance Show Constraint where
                        | otherwise = show (S m i) ++ " >= " ++ show t ++ ";"
   show (E  (S m i)  t) | i /= 0    = error "Can't print Unbalanced Constraint" 
                        | otherwise = show (S m i) ++ " = " ++ show t ++ ";"
+
+
 
 (|>=|) :: Sum -> Sum -> Constraint
 infix 1 |>=|
@@ -107,7 +116,7 @@ infix 1 |<|
 (S m c) |<| (S m' c') = Geq ((S m 0) - (S m' 0)) (c' - c -1)
 
 data PBencState = PBS {
-  nextFresh :: Integer,
+  nextFresh :: {-# UNPACK #-} !Int,
   assocs :: Map Var String,
   constraints :: [Line],
   objective :: Sum
@@ -142,19 +151,47 @@ addAll xs = mapM_ add xs
 minimize :: Sum -> PBencM ()
 minimize c = modify (\s -> s{objective = c})
 
-getEncoding :: PBencM a -> String
-getEncoding p = pr (execState p (PBS 1 M.empty [] emptySum))
+getEncoding :: PBencM a -> L.ByteString
+getEncoding p = toLazyByteString (pr (execState p (PBS 1 M.empty [] emptySum)))
   where
-    pr (PBS i m cs' s) =  "* #variable= " ++ show (i-1)  ++
-                          " #constraint= " ++ show (sum . map f $ cs)
-                          ++ "\n" ++
-                          "* " ++ show (M.toList m) ++ "\n" ++
-                          "min: " ++ show s ++ ";\n" ++
-                          unlines (map show cs)
+    pr (PBS i m cs' s) =  varBldr <> conBldr <> charUtf8 '\n' <> minBldr <> constrs
      where 
+       varBldr = stringUtf8 "* #variable= " <> intDec (i-1)
+       conBldr = stringUtf8 " #constraint= " <> intDec (sum . map f $ cs)
+       minBldr = if s /= S M.empty 0 then 
+         stringUtf8 "min: " <> 
+          sumToBldr s <> stringUtf8 ";\n" else mempty
+       constrs = 
+         mconcat (map lineToBldr cs)
        cs = reverse cs'
        f (Cons _ ) = 1
        f _          = 0
+
+sumToBldr (S m i)
+    | i < 0 = mconcat
+      [mconcat . map printSum . M.assocs $ m,
+       intDec i]
+    | i == 0  = mconcat . map printSum . M.assocs $ m
+    | otherwise = mconcat
+      [mconcat . map printSum . M.assocs $ m,
+       charUtf8 '+',
+       intDec i]
+    where
+      printSum (X a,b)
+        | b == 0 = mempty
+        | b > 0 = charUtf8 '+' <> intDec b <> stringUtf8 " x" <> intDec a <> charUtf8 ' '
+        | otherwise =  intDec b <> stringUtf8 " x" <>  intDec a
+
+
+lineToBldr (Comment str) = stringUtf8 "* " <> stringUtf8 str <> charUtf8 '\n'
+lineToBldr (Cons c) = constrToBldr c
+
+constrToBldr (Geq (S m i) t) =
+  sumToBldr (S m i) <> stringUtf8 " >= " <> intDec t <> stringUtf8 ";\n"
+constrToBldr (E (S m i) t) =
+  sumToBldr (S m i) <> stringUtf8 " = " <> intDec t <> stringUtf8 ";\n"
+
+
 
 test = do
   c <- newVar1

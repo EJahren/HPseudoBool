@@ -22,4 +22,5 @@ Library
   Build-depends:
     containers,
     base,
-    mtl
+    mtl,
+    bytestring
