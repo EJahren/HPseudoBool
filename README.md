@@ -15,8 +15,8 @@ usage
     main = putStrLn (getEncoding test)
 
     test = do
-      c <- newVar1
+      c <- newVar
       add ( c |<=| 1)
-      [a,b] <- mapM newVar ["a","b"]
+      [a,b] <- replicateM 2 newVar
       add (c |>=| a + b)
-      minimize( a - b)
+      minimize(a - b)

@@ -12,7 +12,6 @@ module HPseudoBool
    (|>|),
    getEncoding,
    newVar,
-   newVar1,
    sumC,
    Constraint(..),
    PBencM,
@@ -117,34 +116,26 @@ infix 1 |<|
 
 data PBencState = PBS {
   nextFresh :: {-# UNPACK #-} !Int,
-  assocs :: Map Var String,
-  constraints :: [Line],
+  numConstr :: {-# UNPACK #-} !Int, 
+  constraints :: Builder,
   objective :: Sum
 }
 
 type PBencM = State PBencState
 
-newVar :: String -> PBencM Sum
-newVar str = do
-  i <- gets nextFresh
-  let retVar = X i
-  modify 
-    (\p -> 
-       p{nextFresh = i + 1,
-         assocs = M.insert retVar str (assocs p) })
-  return (S (M.singleton retVar 1) 0)
 
-newVar1 :: PBencM Sum
-newVar1 = do
+newVar :: PBencM Sum
+newVar = do
   i <- gets nextFresh
   modify (\p -> p{nextFresh = i + 1})
   return (S (M.singleton (X i) 1) 0)
 
 add :: Constraint -> PBencM ()
-add c = modify (\s -> s{constraints = (Cons c) : constraints s})
+add c = modify (\s -> s{numConstr = numConstr s + 1,
+                        constraints = constraints s <> constrToBldr c})
 
 comment :: String -> PBencM ()
-comment str = modify (\s -> s{constraints = (Comment str):(constraints s)})
+comment str = modify (\s -> s{constraints = constraints s <> commentToBldr str})
 
 addAll xs = mapM_ add xs
 
@@ -152,18 +143,15 @@ minimize :: Sum -> PBencM ()
 minimize c = modify (\s -> s{objective = c})
 
 getEncoding :: PBencM a -> L.ByteString
-getEncoding p = toLazyByteString (pr (execState p (PBS 1 M.empty [] emptySum)))
+getEncoding p = toLazyByteString (pr (execState p (PBS 1 0 mempty emptySum)))
   where
-    pr (PBS i m cs' s) =  varBldr <> conBldr <> charUtf8 '\n' <> minBldr <> constrs
+    pr (PBS i j cs s) =  varBldr <> conBldr <> charUtf8 '\n' <> minBldr <> cs
      where 
        varBldr = stringUtf8 "* #variable= " <> intDec (i-1)
-       conBldr = stringUtf8 " #constraint= " <> intDec (sum . map f $ cs)
+       conBldr = stringUtf8 " #constraint= " <> intDec j
        minBldr = if s /= S M.empty 0 then 
          stringUtf8 "min: " <> 
           sumToBldr s <> stringUtf8 ";\n" else mempty
-       constrs = 
-         mconcat (map lineToBldr cs)
-       cs = reverse cs'
        f (Cons _ ) = 1
        f _          = 0
 
@@ -180,22 +168,24 @@ sumToBldr (S m i)
       printSum (X a,b)
         | b == 0 = mempty
         | b > 0 = charUtf8 '+' <> intDec b <> stringUtf8 " x" <> intDec a <> charUtf8 ' '
-        | otherwise =  intDec b <> stringUtf8 " x" <>  intDec a
+        | otherwise =  intDec b <> stringUtf8 " x" <>  intDec a <> charUtf8 ' '
 
 
-lineToBldr (Comment str) = stringUtf8 "* " <> stringUtf8 str <> charUtf8 '\n'
+commentToBldr str =  stringUtf8 "* " <> stringUtf8 str <> charUtf8 '\n'
+
+lineToBldr (Comment str) = commentToBldr str
 lineToBldr (Cons c) = constrToBldr c
 
 constrToBldr (Geq (S m i) t) =
-  sumToBldr (S m i) <> stringUtf8 " >= " <> intDec t <> stringUtf8 ";\n"
+  sumToBldr (S m i) <> stringUtf8 ">= " <> intDec t <> stringUtf8 ";\n"
 constrToBldr (E (S m i) t) =
-  sumToBldr (S m i) <> stringUtf8 " = " <> intDec t <> stringUtf8 ";\n"
+  sumToBldr (S m i) <> stringUtf8 "= " <> intDec t <> stringUtf8 ";\n"
 
 
 
 test = do
-  c <- newVar1
+  c <- newVar
   add ( c |<=| 1)
-  [a,b] <- mapM newVar ["a","b"]
+  [a,b] <- replicateM 2 newVar
   add (c |>=| a + b)
-  minimize( a - b)
+  minimize(a - b)
