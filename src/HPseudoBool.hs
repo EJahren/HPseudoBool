@@ -12,6 +12,7 @@ module HPseudoBool
    (|>|),
    getEncoding,
    newVar,
+   newVars,
    sumC,
    Constraint(..),
    PBencM,
@@ -129,6 +130,12 @@ newVar = do
   i <- gets nextFresh
   modify (\p -> p{nextFresh = i + 1})
   return (S (M.singleton (X i) 1) 0)
+
+newVars :: Int -> PBencM [Sum]
+newVars i = do
+  n <- gets nextFresh
+  modify (\p -> p{nextFresh = n + i})
+  return [(S (M.singleton (X j) 1) 0) | j <- [n..n+i-1]]
 
 add :: Constraint -> PBencM ()
 add c = modify (\s -> s{numConstr = numConstr s + 1,
